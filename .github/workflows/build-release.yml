@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release Luci APK
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
 
 env:
   PACKAGE_NAME: luci-app-xray
+  OPENWRT_VERSION: 25.12.2
   CACHE_DIR: ~/cache
 
 jobs:
@@ -19,100 +20,66 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            sdk_url_path: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64
-            sdk_name: -sdk-23.05.5-x86-64_
+            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/x86/64/openwrt-sdk-25.12.2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          - arch: aarch64_cortex-a53
+            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/mediatek/filogic/openwrt-sdk-25.12.2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          - arch: aarch64_cortex-a72
+            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/mvebu/cortexa72/openwrt-sdk-25.12.2-mvebu-cortexa72_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          - arch: arm_cortex-a7_neon-vfpv4
+            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/bcm27xx/bcm2709/openwrt-sdk-25.12.2-bcm27xx-bcm2709_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst
+          - arch: aarch64_generic
+            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
-    env:
-      SDK_URL_PATH: ${{ matrix.sdk_url_path }}
-      SDK_NAME: ${{ matrix.sdk_name }}
-      CCACHE_DIR: ~/.ccache
-      CONFIG_CCACHE: y
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Prepare Cache Key
-        id: cache_key
-        run: echo "::set-output name=timestamp::$(date +"%s")"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+            python3 python3-setuptools python3-pip \
+            rsync unzip file wget curl zstd p7zip-full
 
-      - name: Setup Cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.CACHE_DIR }}
-            ${{ env.CCACHE_DIR }}
-          key: openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-${{ steps.cache_key.outputs.timestamp }}
-          restore-keys: |
-            openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-
-      - name: Install Dependencies
+      - name: Download and Extract SDK
         run: |
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc p7zip-full
-      - name: Create Directories
+          mkdir sdk && cd sdk
+          SDK_FILE=$(basename ${{ matrix.sdk_url }})
+          wget -q ${{ matrix.sdk_url }} || { echo "❌ Failed to download SDK"; exit 1; }
+          tar --zstd -xf $SDK_FILE --strip-components=1
+
+      - name: Setup Feeds
         run: |
-          CACHE_DIR_SDK="$(eval echo "$CACHE_DIR/sdk")"
-          CACHE_DIR_DL="$(eval echo "$CACHE_DIR/dl")"
-          CACHE_DIR_FEEDS="$(eval echo "$CACHE_DIR/feeds")"
-          echo "CACHE_DIR_SDK: $CACHE_DIR_SDK"
-          echo "CACHE_DIR_DL: $CACHE_DIR_DL"
-          echo "CACHE_DIR_FEEDS: $CACHE_DIR_FEEDS"
-          test -d "$CACHE_DIR_SDK" || mkdir -p "$CACHE_DIR_SDK"
-          test -d "$CACHE_DIR_DL" || mkdir -p "$CACHE_DIR_DL"
-          test -d "$CACHE_DIR_FEEDS" || mkdir -p "$CACHE_DIR_FEEDS"
-          echo "CACHE_DIR_SDK=$CACHE_DIR_SDK" >> $GITHUB_ENV
-          echo "CACHE_DIR_DL=$CACHE_DIR_DL" >> $GITHUB_ENV
-          echo "CACHE_DIR_FEEDS=$CACHE_DIR_FEEDS" >> $GITHUB_ENV
-          echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
-      - name: Download and Unzip SDK
-        run: |
-          cd "$CACHE_DIR_SDK"
-          if ! ( wget -q -O - "$SDK_URL_PATH/sha256sums" | grep -- "$SDK_NAME" > sha256sums.small 2>/dev/null ) ; then
-            echo "::error::Can not find ${SDK_NAME} file in sha256sums."
-            exit 1
-          fi
-          SDK_FILE="$(cat sha256sums.small | cut -d' ' -f2 | sed 's/*//g')"
-          if ! sha256sum -c ./sha256sums.small >/dev/null 2>&1 ; then
-            wget -q -O "$SDK_FILE" "$SDK_URL_PATH/$SDK_FILE"
-            if ! sha256sum -c ./sha256sums.small >/dev/null 2>&1 ; then
-              echo "::error::SDK can not be verified!"
-              exit 1
-            fi
-          fi
-          cd -
-          file "$CACHE_DIR_SDK/$SDK_FILE"
-          7z x "$CACHE_DIR_SDK/$SDK_FILE" -so | tar -C "$SDK_HOME" -xvf - --strip=1
-          cd "$SDK_HOME"
-          test -d "dl" && rm -rf "dl" || true
-          test -d "feeds" && rm -rf "feeds" || true
-          ln -s "$CACHE_DIR_DL" "dl"
-          ln -s "$CACHE_DIR_FEEDS" "feeds"
-          cp feeds.conf.default feeds.conf
-          sed -i 's#git.openwrt.org/openwrt/openwrt#github.com/openwrt/openwrt#' feeds.conf
-          sed -i 's#git.openwrt.org/feed/packages#github.com/openwrt/packages#' feeds.conf
-          sed -i 's#git.openwrt.org/project/luci#github.com/openwrt/luci#' feeds.conf
-          sed -i 's#git.openwrt.org/feed/telephony#github.com/openwrt/telephony#' feeds.conf
-          cd -
-      - name: Update and Install Packages
-        run: |
-          cd "$SDK_HOME"
+          cd sdk
           ./scripts/feeds update -a
-          ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
+          rm -rf feeds/packages/net/${PACKAGE_NAME} || true
+          ln -s $GITHUB_WORKSPACE package/${PACKAGE_NAME}
           ./scripts/feeds install -a
-          cd -
-      - name: Build Packages
-        run: |
-          cd "$SDK_HOME"
-          make defconfig
-          make package/${PACKAGE_NAME}/status/{clean,compile} V=s
-          find "$SDK_HOME/bin/" -type f -name "*.ipk" -exec ls -lh {} \;
-          cd -
-      - name: Copy Bin Files
-        run: |
-          find "$SDK_HOME/bin/" -type f -name "${PACKAGE_NAME}*.ipk" -exec cp {} "${{ github.workspace }}" \;
-          find "${{ github.workspace }}" -type f -name "*.ipk" -exec ls -lh {} \;
-      - name: Release and Upload Assets
-        uses: softprops/action-gh-release@v1
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
         with:
-          files: "*.ipk"
+          go-version: 'stable'
+
+      - name: Build Package
+        run: |
+          cd sdk
+          make defconfig
+          make package/${PACKAGE_NAME}/compile V=s
+
+      - name: Collect APK
+        run: |
+          echo "📦 Searching APK..."
+          find sdk/bin/ -type f -name "*.apk" -exec cp {} . \;
+          echo "📂 Result:"
+          ls -lh *.apk || (echo "❌ No APK found" && exit 1)
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: '*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -126,12 +93,12 @@ jobs:
     steps:
       - name: Notify Jenkins
         run: |
-          if [ -z "$TRIGGER_URL" ] ; then
+          if [ -z "$TRIGGER_URL" ]; then
             echo "::warning::No trigger url found, skip..."
             exit 0
           fi
           curl -X POST \
-              -H "Content-Type: application/json; charset=utf-8" \
-              -H "Authorization: Bearer $TRIGGER_TOKEN" \
-              -d "{\"event\":\"release\",\"repository\":\"${{ github.repository }}\",\"ref\":\"${{ github.ref }}\"}" \
-              "$TRIGGER_URL" || true
+            -H "Content-Type: application/json; charset=utf-8" \
+            -H "Authorization: Bearer $TRIGGER_TOKEN" \
+            -d "{\"event\":\"release\",\"repository\":\"${{ github.repository }}\",\"ref\":\"${{ github.ref }}\"}" \
+            "$TRIGGER_URL" || true
