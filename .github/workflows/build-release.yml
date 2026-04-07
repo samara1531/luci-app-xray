@@ -58,7 +58,7 @@ jobs:
           make package/luci-app-xray/{compile,install} V=s
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v1
         with:
           name: luci-app-xray-${{ matrix.arch }}-${OPENWRT_VERSION}
           path: $SDK_HOME/bin/packages/*/*/*.apk
