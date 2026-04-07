@@ -1,4 +1,4 @@
-name: Build and Release LuCI-App-Xray
+name: Build and Release LuCI
 
 on:
   push:
@@ -30,7 +30,6 @@ jobs:
             sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
     env:
-      SDK_URL: ${{ matrix.sdk_url }}
       CCACHE_DIR: ~/.ccache
     steps:
       - name: Checkout
@@ -39,49 +38,40 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ccache gettext libncurses5-dev xsltproc p7zip-full zstd
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc p7zip-full
 
       - name: Prepare SDK
         run: |
-          mkdir -p "$CACHE_DIR/sdk_home"
-          SDK_FILE="$CACHE_DIR/sdk_home/$(basename $SDK_URL)"
-          wget -q "$SDK_URL" -O "$SDK_FILE"
-          tar --zstd -xf "$SDK_FILE" -C "$CACHE_DIR/sdk_home" --strip-components=1
-          echo "SDK_HOME=$CACHE_DIR/sdk_home" >> $GITHUB_ENV
+          mkdir -p "$CACHE_DIR/sdk"
+          cd "$CACHE_DIR/sdk"
+          SDK_FILE=$(basename ${{ matrix.sdk_url }})
+          wget -q ${{ matrix.sdk_url }} -O $SDK_FILE
+          mkdir -p "$GITHUB_WORKSPACE/sdk_home"
+          tar --zstd -xf $SDK_FILE --strip-components=1 -C "$GITHUB_WORKSPACE/sdk_home"
+          echo "SDK_HOME=$GITHUB_WORKSPACE/sdk_home" >> $GITHUB_ENV
 
-      - name: Prepare feeds
+      - name: Prepare Feeds and Package
         run: |
           cd "$SDK_HOME"
-          test -d "feeds" || mkdir feeds
-          cp feeds.conf.default feeds.conf
-          sed -i 's/git.openwrt.org/github.com/g' feeds.conf
+          # Не трогаем git.openwrt.org
           ./scripts/feeds update -a
+          ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
+
+      - name: Build LuCI Package
+        run: |
+          cd "$SDK_HOME"
+          make defconfig
+          make package/$PACKAGE_NAME/compile V=s
+          cp bin/packages/*/*/$PACKAGE_NAME*.apk "${{ github.workspace }}/"
           cd -
 
-      - name: Link Package
-        run: |
-          ln -s ${{ github.workspace }} "$CACHE_DIR/sdk_home/package/${PACKAGE_NAME}"
-
-      - name: Build LuCI App
-        run: |
-          cd "$CACHE_DIR/sdk_home"
-          make package/${PACKAGE_NAME}/clean V=s || true
-          make package/${PACKAGE_NAME}/compile V=s
-          cd -
-
-      - name: Copy APKs
-        run: |
-          mkdir -p "${{ github.workspace }}/release"
-          find "$CACHE_DIR/sdk_home/bin/packages/" -type f -name "${PACKAGE_NAME}_*.ipk" | while read f; do
-            arch_label=$(basename "$f" | cut -d'_' -f3)
-            cp "$f" "${{ github.workspace }}/release/${PACKAGE_NAME}_${arch_label}.apk"
-          done
-          ls -lh "${{ github.workspace }}/release"
+      - name: List built APKs
+        run: ls -lh "${{ github.workspace }}/"*.apk
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: "release/*.apk"
+          files: "*.apk"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
