@@ -1,77 +1,64 @@
-name: Build and Release LuCI
+name: Build luci-app-xray
 
 on:
-  push:
-    tags:
-      - "*"
   workflow_dispatch:
 
 env:
+  OPENWRT_VERSION: 25.12.2
+  CACHE_DIR: ${{ github.workspace }}/cache
   PACKAGE_NAME: luci-app-xray
-  CACHE_DIR: ~/cache
 
 jobs:
-  release:
-    name: Build for ${{ matrix.arch }}
+  build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/x86/64/openwrt-sdk-25.12.2-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-          - arch: aarch64_cortex-a53
-            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/mediatek/filogic/openwrt-sdk-25.12.2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-          - arch: aarch64_cortex-a72
-            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/mvebu/cortexa72/openwrt-sdk-25.12.2-mvebu-cortexa72_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-          - arch: arm_cortex-a7_neon-vfpv4
-            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/bcm27xx/bcm2709/openwrt-sdk-25.12.2-bcm27xx-bcm2709_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst
-          - arch: aarch64_generic
-            sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-
-    env:
-      CCACHE_DIR: ~/.ccache
+        arch: [x86_64, aarch64_cortex-a53, aarch64_cortex-a72, arm_cortex-a7_neon-vfpv4, aarch64_generic]
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Dependencies
+      - name: Set SDK URL
         run: |
-          sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc p7zip-full
+          case "${{ matrix.arch }}" in
+            x86_64) SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-sdk-${OPENWRT_VERSION}-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst" ;;
+            aarch64_cortex-a53) SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mediatek/filogic/openwrt-sdk-${OPENWRT_VERSION}-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst" ;;
+            aarch64_cortex-a72) SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mvebu/cortexa72/openwrt-sdk-${OPENWRT_VERSION}-mvebu-cortexa72_gcc-14.3.0_musl.Linux-x86_64.tar.zst" ;;
+            arm_cortex-a7_neon-vfpv4) SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/bcm27xx/bcm2709/openwrt-sdk-${OPENWRT_VERSION}-bcm27xx-bcm2709_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst" ;;
+            aarch64_generic) SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/rockchip/armv8/openwrt-sdk-${OPENWRT_VERSION}-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst" ;;
+            *) echo "Unknown architecture"; exit 1 ;;
+          esac
+          echo "SDK_URL=$SDK_URL" >> $GITHUB_ENV
 
       - name: Prepare SDK
         run: |
-          mkdir -p "$CACHE_DIR/sdk"
-          cd "$CACHE_DIR/sdk"
-          SDK_FILE=$(basename ${{ matrix.sdk_url }})
-          wget -q ${{ matrix.sdk_url }} -O $SDK_FILE
-          mkdir -p "$GITHUB_WORKSPACE/sdk_home"
-          tar --zstd -xf $SDK_FILE --strip-components=1 -C "$GITHUB_WORKSPACE/sdk_home"
-          echo "SDK_HOME=$GITHUB_WORKSPACE/sdk_home" >> $GITHUB_ENV
+          SDK_DIR="${CACHE_DIR}/${{ matrix.arch }}"
+          mkdir -p "$SDK_DIR"
+          cd "$SDK_DIR"
+          SDK_FILE=$(basename $SDK_URL)
+          wget -q $SDK_URL -O "$SDK_FILE"
+          mkdir sdk_home
+          tar --zstd -xf "$SDK_FILE" --strip-components=1 -C sdk_home
+          echo "SDK_HOME=$SDK_DIR/sdk_home" >> $GITHUB_ENV
 
-      - name: Prepare Feeds and Package
+      - name: Install Python prerequisites
         run: |
-          cd "$SDK_HOME"
-          # Не трогаем git.openwrt.org
+          sudo apt-get update
+          sudo apt-get install -y python3-pip python3-setuptools python3-dev swig
+          python3 -m pip install --user pyelftools
+
+      - name: Build luci-app-xray
+        run: |
+          cd $SDK_HOME
           ./scripts/feeds update -a
-          ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
+          # копируем пакет в SDK, если нужно
+          mkdir -p package/luci-app-xray
+          cp -r $GITHUB_WORKSPACE/* package/luci-app-xray/
+          make package/luci-app-xray/{compile,install} V=s
 
-      - name: Build LuCI Package
-        run: |
-          cd "$SDK_HOME"
-          make defconfig
-          make package/$PACKAGE_NAME/compile V=s
-          cp bin/packages/*/*/$PACKAGE_NAME*.apk "${{ github.workspace }}/"
-          cd -
-
-      - name: List built APKs
-        run: ls -lh "${{ github.workspace }}/"*.apk
-
-      - name: Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
         with:
-          files: "*.apk"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: luci-app-xray-${{ matrix.arch }}-${OPENWRT_VERSION}
+          path: $SDK_HOME/bin/packages/*/*/*.apk
