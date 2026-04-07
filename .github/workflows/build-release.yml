@@ -61,6 +61,7 @@ jobs:
           cd $CACHE_DIR/sdk
           SDK_FILE=$(basename ${{ matrix.sdk_url }})
           wget -q ${{ matrix.sdk_url }} || { echo "❌ Failed to download SDK"; exit 1; }
+          mkdir -p "$GITHUB_WORKSPACE/sdk_home"
           tar --zstd -xf $SDK_FILE --strip-components=1 -C "$GITHUB_WORKSPACE/sdk_home"
           echo "SDK_HOME=$GITHUB_WORKSPACE/sdk_home" >> $GITHUB_ENV
 
