@@ -84,9 +84,10 @@ jobs:
           cd $SDK_HOME
           echo "📦 Searching APKs..."
           for pkg in luci-app-xray-core luci-app-xray-geodata luci-app-xray-status; do
-            find bin/ -type f -name "openwrt-$pkg*.apk" -exec cp {} $GITHUB_WORKSPACE/ \;
+            find bin/packages -type f -name "$pkg*.apk" -exec cp {} $GITHUB_WORKSPACE/ \;
           done
           # Добавляем суффикс архитектуры
+          shopt -s nullglob
           for f in *.apk; do
             mv "$f" "${f%.apk}-${{ matrix.arch }}.apk"
           done
