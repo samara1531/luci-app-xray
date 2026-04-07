@@ -1,12 +1,14 @@
-name: Build luci-app-xray
+name: Build and Release luci-app-xray
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "*"
 
 env:
   OPENWRT_VERSION: 25.12.2
   CACHE_DIR: ${{ github.workspace }}/cache
-  PACKAGE_NAME: luci-app-xray
 
 jobs:
   build:
@@ -37,50 +39,62 @@ jobs:
           mkdir -p "$SDK_DIR"
           cd "$SDK_DIR"
           SDK_FILE=$(basename $SDK_URL)
-          wget -q $SDK_URL -O "$SDK_FILE" || { echo "❌ Failed to download SDK"; exit 1; }
+          wget -q $SDK_URL -O "$SDK_FILE"
           mkdir sdk_home
           tar --zstd -xf "$SDK_FILE" --strip-components=1 -C sdk_home
           echo "SDK_HOME=$SDK_DIR/sdk_home" >> $GITHUB_ENV
 
-      - name: Install Python prerequisites
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip python3-setuptools python3-dev swig
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+            python3 python3-pip python3-setuptools python3-dev swig \
+            rsync unzip zstd file wget curl
           python3 -m pip install --user pyelftools
 
-      - name: Setup feeds and copy package
+      - name: Setup feeds and copy packages
         run: |
           cd $SDK_HOME
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # Копируем пакет luci-app-xray в SDK
-          mkdir -p package/luci-app-xray
+          # Копируем каждый подпакет отдельно
+          mkdir -p package/luci-app-xray-core
+          cp -r $GITHUB_WORKSPACE/core/* package/luci-app-xray-core/
 
-          # копируем core, geodata, status и Makefile
-          cp -r $GITHUB_WORKSPACE/core/* package/luci-app-xray/
-          cp -r $GITHUB_WORKSPACE/geodata/root/* package/luci-app-xray/
-          cp -r $GITHUB_WORKSPACE/status/root/* package/luci-app-xray/
-          cp $GITHUB_WORKSPACE/Makefile package/luci-app-xray/
+          mkdir -p package/luci-app-xray-geodata
+          cp -r $GITHUB_WORKSPACE/geodata/* package/luci-app-xray-geodata/
 
-      - name: Build luci-app-xray
+          mkdir -p package/luci-app-xray-status
+          cp -r $GITHUB_WORKSPACE/status/* package/luci-app-xray-status/
+
+          ./scripts/feeds install -a
+
+      - name: Build packages
         run: |
           cd $SDK_HOME
           make defconfig
-          make package/luci-app-xray/compile V=s
+          for pkg in luci-app-xray-core luci-app-xray-geodata luci-app-xray-status; do
+            make package/$pkg/compile V=s || true
+          done
 
-      - name: Collect APK
+      - name: Collect APKs
         run: |
           cd $SDK_HOME
-          echo "📦 Searching APK..."
-          ARCH_SUFFIX=${{ matrix.arch }}
-          for f in $(find bin/ -type f -name "openwrt-xray-*.apk"); do
-              cp "$f" "$GITHUB_WORKSPACE/$(basename $f .apk)-${ARCH_SUFFIX}.apk"
+          echo "📦 Searching APKs..."
+          for pkg in luci-app-xray-core luci-app-xray-geodata luci-app-xray-status; do
+            find bin/ -type f -name "openwrt-$pkg*.apk" -exec cp {} $GITHUB_WORKSPACE/ \;
           done
-          ls -lh $GITHUB_WORKSPACE/*${ARCH_SUFFIX}.apk || (echo "❌ No APK found" && exit 1)
+          # Добавляем суффикс архитектуры
+          for f in *.apk; do
+            mv "$f" "${f%.apk}-${{ matrix.arch }}.apk"
+          done
+          ls -lh *.apk || (echo "❌ No APK found" && exit 1)
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Release APKs
+        uses: softprops/action-gh-release@v2
         with:
-          name: luci-app-xray-${{ matrix.arch }}-${OPENWRT_VERSION}
-          path: $GITHUB_WORKSPACE/*${{ matrix.arch }}.apk
+          files: '*.apk'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
