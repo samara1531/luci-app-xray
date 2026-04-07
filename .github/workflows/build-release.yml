@@ -30,9 +30,27 @@ jobs:
           - arch: aarch64_generic
             sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
+    env:
+      CCACHE_DIR: ~/.ccache
+      CONFIG_CCACHE: y
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare Cache Key
+        id: cache_key
+        run: echo "::set-output name=timestamp::$(date +%s)"
+
+      - name: Setup Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.CACHE_DIR }}
+            ${{ env.CCACHE_DIR }}
+          key: openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-${{ steps.cache_key.outputs.timestamp }}
+          restore-keys: |
+            openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-
 
       - name: Install dependencies
         run: |
@@ -43,20 +61,37 @@ jobs:
             python3 python3-setuptools python3-pip \
             rsync unzip file wget curl zstd p7zip-full
 
+      - name: Create Directories
+        run: |
+          CACHE_DIR_SDK="$CACHE_DIR/sdk"
+          CACHE_DIR_DL="$CACHE_DIR/dl"
+          CACHE_DIR_FEEDS="$CACHE_DIR/feeds"
+          mkdir -p "$CACHE_DIR_SDK" "$CACHE_DIR_DL" "$CACHE_DIR_FEEDS"
+          echo "CACHE_DIR_SDK=$CACHE_DIR_SDK" >> $GITHUB_ENV
+          echo "CACHE_DIR_DL=$CACHE_DIR_DL" >> $GITHUB_ENV
+          echo "CACHE_DIR_FEEDS=$CACHE_DIR_FEEDS" >> $GITHUB_ENV
+          echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
+
       - name: Download and Extract SDK
         run: |
-          mkdir sdk && cd sdk
+          cd "$CACHE_DIR_SDK"
           SDK_FILE=$(basename ${{ matrix.sdk_url }})
           wget -q ${{ matrix.sdk_url }} || { echo "❌ Failed to download SDK"; exit 1; }
-          tar --zstd -xf $SDK_FILE --strip-components=1
+          tar --zstd -xf $SDK_FILE --strip-components=1 -C "$SDK_HOME"
 
-      - name: Setup Feeds
+      - name: Setup Feeds and Package
         run: |
-          cd sdk
+          cd "$SDK_HOME"
+          # обновляем feeds
           ./scripts/feeds update -a
-          rm -rf feeds/packages/net/${PACKAGE_NAME} || true
-          ln -s $GITHUB_WORKSPACE package/${PACKAGE_NAME}
           ./scripts/feeds install -a
+
+          # копируем luci-app-xray в feeds/packages/net
+          mkdir -p feeds/packages/net
+          cp -r $GITHUB_WORKSPACE feeds/packages/net/luci-app-xray
+
+          # заново регистрируем пакет
+          ./scripts/feeds install luci-app-xray
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -65,21 +100,22 @@ jobs:
 
       - name: Build Package
         run: |
-          cd sdk
+          cd "$SDK_HOME"
           make defconfig
-          make package/${PACKAGE_NAME}/compile V=s
+          make package/luci-app-xray/clean V=s
+          make package/luci-app-xray/compile V=s
 
       - name: Collect APK
         run: |
+          cd "$SDK_HOME"
           echo "📦 Searching APK..."
-          find sdk/bin/ -type f -name "*.apk" -exec cp {} . \;
-          echo "📂 Result:"
-          ls -lh *.apk || (echo "❌ No APK found" && exit 1)
+          find bin/ -type f -name "*.ipk" -exec cp {} $GITHUB_WORKSPACE \;
+          ls -lh *.ipk || (echo "❌ No APK found" && exit 1)
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.apk'
+          files: '*.ipk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
