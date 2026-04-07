@@ -1,4 +1,4 @@
-name: Build and Release Luci APK
+name: Build and Release LuCI Xray APK
 
 on:
   push:
@@ -30,15 +30,11 @@ jobs:
           - arch: aarch64_generic
             sdk_url: https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
-    env:
-      CCACHE_DIR: ~/.ccache
-      CONFIG_CCACHE: y
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Cache Key
+      - name: Setup Cache Key
         id: cache_key
         run: echo "::set-output name=timestamp::$(date +%s)"
 
@@ -47,50 +43,36 @@ jobs:
         with:
           path: |
             ${{ env.CACHE_DIR }}
-            ${{ env.CCACHE_DIR }}
+            ~/.ccache
           key: openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-${{ steps.cache_key.outputs.timestamp }}
           restore-keys: |
             openwrt-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential clang flex bison g++ gawk \
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
-            python3 python3-setuptools python3-pip \
-            rsync unzip file wget curl zstd p7zip-full
+            python3 python3-setuptools python3-pip rsync unzip file wget curl zstd p7zip-full
 
-      - name: Create Directories
+      - name: Prepare SDK
         run: |
-          CACHE_DIR_SDK="$CACHE_DIR/sdk"
-          CACHE_DIR_DL="$CACHE_DIR/dl"
-          CACHE_DIR_FEEDS="$CACHE_DIR/feeds"
-          mkdir -p "$CACHE_DIR_SDK" "$CACHE_DIR_DL" "$CACHE_DIR_FEEDS"
-          echo "CACHE_DIR_SDK=$CACHE_DIR_SDK" >> $GITHUB_ENV
-          echo "CACHE_DIR_DL=$CACHE_DIR_DL" >> $GITHUB_ENV
-          echo "CACHE_DIR_FEEDS=$CACHE_DIR_FEEDS" >> $GITHUB_ENV
-          echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
-
-      - name: Download and Extract SDK
-        run: |
-          cd "$CACHE_DIR_SDK"
+          mkdir -p $CACHE_DIR/sdk
+          cd $CACHE_DIR/sdk
           SDK_FILE=$(basename ${{ matrix.sdk_url }})
           wget -q ${{ matrix.sdk_url }} || { echo "❌ Failed to download SDK"; exit 1; }
-          tar --zstd -xf $SDK_FILE --strip-components=1 -C "$SDK_HOME"
+          tar --zstd -xf $SDK_FILE --strip-components=1 -C "$GITHUB_WORKSPACE/sdk_home"
+          echo "SDK_HOME=$GITHUB_WORKSPACE/sdk_home" >> $GITHUB_ENV
 
       - name: Setup Feeds and Package
         run: |
           cd "$SDK_HOME"
-          # обновляем feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # копируем luci-app-xray в feeds/packages/net
+          # Подключаем luci-app-xray
           mkdir -p feeds/packages/net
-          cp -r $GITHUB_WORKSPACE feeds/packages/net/luci-app-xray
-
-          # заново регистрируем пакет
+          ln -s $GITHUB_WORKSPACE feeds/packages/net/luci-app-xray
           ./scripts/feeds install luci-app-xray
 
       - name: Setup Go
@@ -98,39 +80,40 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Build Package
+      - name: Build LuCI APK
         run: |
           cd "$SDK_HOME"
           make defconfig
-          make package/luci-app-xray/clean V=s
-          make package/luci-app-xray/compile V=s
+          make package/luci-app-xray/{clean,compile} V=s
 
       - name: Collect APK
         run: |
-          cd "$SDK_HOME"
-          echo "📦 Searching APK..."
-          find bin/ -type f -name "*.ipk" -exec cp {} $GITHUB_WORKSPACE \;
-          ls -lh *.ipk || (echo "❌ No APK found" && exit 1)
+          cd "$SDK_HOME/bin/packages"
+          ARCH_SUFFIX=${{ matrix.arch }}
+          for f in $(find . -type f -name "luci-app-xray*.apk"); do
+              cp "$f" "$GITHUB_WORKSPACE/$(basename $f .apk)-${ARCH_SUFFIX}.apk"
+          done
+          ls -lh $GITHUB_WORKSPACE/*.apk
 
-      - name: Release
+      - name: Release APK
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.ipk'
+          files: '*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   notify:
-    name: Notify Release Publish
+    name: Notify Release
     runs-on: ubuntu-latest
-    env:
-      TRIGGER_URL: ${{ secrets.TRIGGER_URL }}
-      TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
     needs: release
     steps:
       - name: Notify Jenkins
+        env:
+          TRIGGER_URL: ${{ secrets.TRIGGER_URL }}
+          TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
         run: |
           if [ -z "$TRIGGER_URL" ]; then
-            echo "::warning::No trigger url found, skip..."
+            echo "::warning::No trigger URL, skip..."
             exit 0
           fi
           curl -X POST \
