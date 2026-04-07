@@ -54,7 +54,7 @@ jobs:
           ./scripts/feeds install -a
           # копируем пакет в SDK, если нужно
           mkdir -p package/luci-app-xray
-          cp -r $GITHUB_WORKSPACE/* package/luci-app-xray/
+          cp -r $GITHUB_WORKSPACE/{Makefile,root,some_other_sources} package/luci-app-xray/
           make package/luci-app-xray/{compile,install} V=s
 
       - name: Upload APK
