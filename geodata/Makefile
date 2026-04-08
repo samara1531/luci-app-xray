@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
 	TITLE:=LuCI Support for Xray (geodata page)
-	DEPENDS:=luci-app-xray
+	DEPENDS:=luci-app-xray +v2ray-geoip +v2ray-geosite +xray-geodata
 	PKGARCH:=all
 endef
 
