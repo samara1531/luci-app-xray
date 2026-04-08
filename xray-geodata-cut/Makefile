@@ -1,16 +1,18 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-xray-geodata-cut
-PKG_VERSION:=86a309fc432f7c6caeb66b6785fae727f6be6ced
+PKG_VERSION:=3.7.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=MPLv2
 PKG_LICENSE_FILES:=LICENSE
 PKG_MAINTAINER:=yichya <mail@yichya.dev>
 
-PKG_SOURCE:=xray-geodata-cut-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/yichya/xray-geodata-cut/tar.gz/${PKG_VERSION}?
+PKG_SOURCE_VERSION:=86a309fc432f7c6caeb66b6785fae727f6be6ced
+PKG_SOURCE:=xray-geodata-cut-$(PKG_SOURCE_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/yichya/xray-geodata-cut/tar.gz/$(PKG_SOURCE_VERSION)?
 PKG_HASH:=skip
+
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 
