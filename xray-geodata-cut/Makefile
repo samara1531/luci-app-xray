@@ -15,6 +15,7 @@ PKG_HASH:=skip
 
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
+PKG_FIXUP:=golang
 
 GO_PKG:=github.com/yichya/xray-geodata-cut
 
@@ -35,15 +36,15 @@ endef
 
 define Package/$(PKG_NAME)/config
 menu "openwrt-xray-geodata-cut Configuration"
-        depends on PACKAGE_$(PKG_NAME)
+	depends on PACKAGE_$(PKG_NAME)
 
 config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_FETCH_VIA_PROXYCHAINS
-        bool "Fetch data files using proxychains (not recommended)"
-        default n
+	bool "Fetch data files using proxychains (not recommended)"
+	default n
 
 config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_ENABLE_GOPROXY_IO
-        bool "Use goproxy.io to speed up module fetching (recommended for some network situations)"
-        default n
+	bool "Use goproxy.io to speed up module fetching (recommended for some network situations)"
+	default n
 
 config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOSITE
 	bool "Trim GeoSite"
@@ -73,12 +74,12 @@ endef
 
 PROXYCHAINS:=
 ifdef CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_FETCH_VIA_PROXYCHAINS
-        PROXYCHAINS:=proxychains
+	PROXYCHAINS:=proxychains
 endif
 
 USE_GOPROXY:=
 ifdef CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_ENABLE_GOPROXY_IO
-        USE_GOPROXY:=GOPROXY=https://goproxy.io,direct
+	USE_GOPROXY:=GOPROXY=https://goproxy.io,direct
 endif
 
 TRIM_IPV6:=
@@ -86,33 +87,39 @@ ifdef CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_TRIM_IPV6
 	TRIM_IPV6:=-trimipv6
 endif
 
-MAKE_PATH:=$(GO_PKG_WORK_DIR_NAME)/build/src/$(GO_PKG)
-MAKE_VARS += $(GO_PKG_VARS)
-
-define Build/Patch
-	$(CP) $(PKG_BUILD_DIR)/../xray-geodata-cut-$(PKG_VERSION)/* $(PKG_BUILD_DIR)
-endef
-
 define Build/Compile
-	cd $(PKG_BUILD_DIR); $(GO_HOST_PKG_VARS) $(USE_GOPROXY) CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $(PKG_INSTALL_DIR)/bin/xray-geodata-cut .
+	$(INSTALL_DIR) $(PKG_INSTALL_DIR)/bin
+
+	cd $(PKG_BUILD_DIR); \
+	$(GO_HOST_PKG_VARS) $(USE_GOPROXY) CGO_ENABLED=0 \
+	go build -trimpath -ldflags "-s -w" \
+	-o $(PKG_INSTALL_DIR)/bin/xray-geodata-cut .
+
 ifdef CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOIP
-	$(PROXYCHAINS) wget https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O $(PKG_BUILD_DIR)/geoip_in.dat
-	$(PKG_INSTALL_DIR)/bin/xray-geodata-cut -type geoip -in $(PKG_BUILD_DIR)/geoip_in.dat $(TRIM_IPV6) -keep $(CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOIP_KEEP) -out $(PKG_BUILD_DIR)/geoip.dat
+	$(PROXYCHAINS) wget -q --show-progress https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O $(PKG_BUILD_DIR)/geoip_in.dat || exit 1
+	$(PKG_INSTALL_DIR)/bin/xray-geodata-cut -type geoip \
+		-in $(PKG_BUILD_DIR)/geoip_in.dat $(TRIM_IPV6) \
+		-keep $(CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOIP_KEEP) \
+		-out $(PKG_BUILD_DIR)/geoip.dat
 else
-	$(PROXYCHAINS) wget https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O $(PKG_BUILD_DIR)/geoip.dat
+	$(PROXYCHAINS) wget -q --show-progress https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O $(PKG_BUILD_DIR)/geoip.dat || exit 1
 endif
+
 ifdef CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOSITE
-	$(PROXYCHAINS) wget https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O $(PKG_BUILD_DIR)/geosite_in.dat
-	$(PKG_INSTALL_DIR)/bin/xray-geodata-cut -type geosite -in $(PKG_BUILD_DIR)/geosite_in.dat -keep $(CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOSITE_KEEP) -out $(PKG_BUILD_DIR)/geosite.dat
+	$(PROXYCHAINS) wget -q --show-progress https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O $(PKG_BUILD_DIR)/geosite_in.dat || exit 1
+	$(PKG_INSTALL_DIR)/bin/xray-geodata-cut -type geosite \
+		-in $(PKG_BUILD_DIR)/geosite_in.dat \
+		-keep $(CONFIG_PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOSITE_KEEP) \
+		-out $(PKG_BUILD_DIR)/geosite.dat
 else
-	$(PROXYCHAINS) wget https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O $(PKG_BUILD_DIR)/geosite.dat
+	$(PROXYCHAINS) wget -q --show-progress https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O $(PKG_BUILD_DIR)/geosite.dat || exit 1
 endif
 endef
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/share/xray
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/geoip.dat $(1)/usr/share/xray/	
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/geosite.dat $(1)/usr/share/xray/	
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/geoip.dat $(1)/usr/share/xray/
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/geosite.dat $(1)/usr/share/xray/
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
