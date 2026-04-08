@@ -100,11 +100,11 @@ jobs:
           cd "$SDK_HOME"
           mkdir -p "$GITHUB_WORKSPACE/out"
 
-          for pkg in luci-app-xray luci-app-xray-geodata luci-app-xray-status; do
-            for f in $(find bin/packages -type f -name "${pkg}*.apk"); do
-              base=$(basename "$f" .apk)
-              cp "$f" "$GITHUB_WORKSPACE/out/${base}-${{ matrix.arch }}.apk"
-            done
+          # ищем все .apk в поддиректориях bin/packages
+          shopt -s nullglob
+          for f in $(find bin/packages -type f -name "*.apk"); do
+            base=$(basename "$f" .apk)
+            cp "$f" "$GITHUB_WORKSPACE/out/${base}-${{ matrix.arch }}.apk"
           done
 
           ls -lh "$GITHUB_WORKSPACE/out"/*.apk
