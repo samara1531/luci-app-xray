@@ -14,6 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         arch: [x86_64, aarch64_cortex-a53, aarch64_cortex-a72, arm_cortex-a7_neon-vfpv4, aarch64_generic]
 
@@ -38,64 +39,72 @@ jobs:
           SDK_DIR="${CACHE_DIR}/${{ matrix.arch }}"
           mkdir -p "$SDK_DIR"
           cd "$SDK_DIR"
-          SDK_FILE=$(basename $SDK_URL)
-          wget -q $SDK_URL -O "$SDK_FILE"
+
+          wget -q "$SDK_URL" -O sdk.tar.zst
           mkdir sdk_home
-          tar --zstd -xf "$SDK_FILE" --strip-components=1 -C sdk_home
+          tar --zstd -xf sdk.tar.zst --strip-components=1 -C sdk_home
+
           echo "SDK_HOME=$SDK_DIR/sdk_home" >> $GITHUB_ENV
 
-      - name: Install build dependencies
+      - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
             python3 python3-pip python3-pyelftools python3-setuptools python3-dev swig \
             rsync unzip zstd file wget curl
-          python3 -m pip install --user pyelftools
 
-      - name: Setup feeds and copy packages
+      - name: Setup feeds
         run: |
           cd $SDK_HOME
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # Копируем каждый подпакет отдельно
-          mkdir -p package/luci-app-xray-core
-          cp -r $GITHUB_WORKSPACE/core/* package/luci-app-xray-core/
+      - name: Copy packages (ВАЖНО: структура репы)
+        run: |
+          cd $SDK_HOME
 
+          # core
+          mkdir -p package/luci-app-xray
+          cp -r $GITHUB_WORKSPACE/core/* package/luci-app-xray/
+
+          # geodata
           mkdir -p package/luci-app-xray-geodata
           cp -r $GITHUB_WORKSPACE/geodata/* package/luci-app-xray-geodata/
 
+          # status
           mkdir -p package/luci-app-xray-status
           cp -r $GITHUB_WORKSPACE/status/* package/luci-app-xray-status/
-
-          ./scripts/feeds install -a
 
       - name: Build packages
         run: |
           cd $SDK_HOME
           make defconfig
-          for pkg in luci-app-xray-core luci-app-xray-geodata luci-app-xray-status; do
-            make package/$pkg/compile V=s || true
-          done
 
-      - name: Collect APKs
+          make package/luci-app-xray/compile V=s
+          make package/luci-app-xray-geodata/compile V=s
+          make package/luci-app-xray-status/compile V=s
+
+      - name: Collect APKs (фикс имени + архитектура)
         run: |
           cd $SDK_HOME
-          echo "📦 Searching APKs..."
-          for pkg in luci-app-xray-core luci-app-xray-geodata luci-app-xray-status; do
-            find bin/packages -type f -name "$pkg*.apk" -exec cp {} $GITHUB_WORKSPACE/ \;
-          done
-          # Добавляем суффикс архитектуры
-          shopt -s nullglob
-          for f in *.apk; do
-            mv "$f" "${f%.apk}-${{ matrix.arch }}.apk"
-          done
-          ls -lh *.apk || (echo "❌ No APK found" && exit 1)
+          echo "📦 Collecting APKs..."
 
-      - name: Release APKs
+          mkdir -p $GITHUB_WORKSPACE/out
+
+          for pkg in luci-app-xray luci-app-xray-geodata luci-app-xray-status; do
+            find bin/packages -type f -name "${pkg}*.apk" | while read f; do
+              base=$(basename "$f" .apk)
+              cp "$f" "$GITHUB_WORKSPACE/out/${base}-${{ matrix.arch }}.apk"
+            done
+          done
+
+          ls -lh $GITHUB_WORKSPACE/out/*.apk || (echo "❌ No APK found" && exit 1)
+
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.apk'
+          files: out/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
