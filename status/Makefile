@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
 	TITLE:=LuCI Support for Xray (status page)
-	DEPENDS:=luci-app-xray +wget
+	DEPENDS:=luci-app-xray +wget-ssl
 	PKGARCH:=all
 endef
 
