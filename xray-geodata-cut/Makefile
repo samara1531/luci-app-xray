@@ -16,8 +16,6 @@ PKG_MIRROR_HASH:=skip
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 
-GO_PKG:=github.com/yichya/xray-geodata-cut
-
 include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
@@ -28,7 +26,7 @@ define Package/$(PKG_NAME)
 endef
 
 define Package/$(PKG_NAME)/description
-	Slim geodata files when compiling OpenWrt with Xray
+	Slim geodata files for Xray
 endef
 
 # ---------- CONFIG ----------
@@ -58,10 +56,10 @@ define Build/Compile
 
 	cd $(PKG_BUILD_DIR); \
 	$(GO_HOST_PKG_VARS) \
-	go mod download; \
 	go mod edit -replace github.com/sagernet/sing=github.com/sagernet/sing@v0.3.3; \
+	go mod tidy; \
 	CGO_ENABLED=0 \
-	go build -trimpath -ldflags "-s -w" \
+	go build -mod=mod -buildvcs=false -trimpath -ldflags "-s -w" \
 	-o $(PKG_INSTALL_DIR)/bin/xray-geodata-cut .
 endef
 
