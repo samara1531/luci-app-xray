@@ -15,20 +15,16 @@ PKG_MIRROR_HASH:=skip
 
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
-PKG_FIXUP:=golang
 
 GO_PKG:=github.com/yichya/xray-geodata-cut
-GO_PKG_BUILD_PKG:=$(GO_PKG)
 
 include $(INCLUDE_DIR)/package.mk
-include $(INCLUDE_DIR)/../feeds/packages/lang/golang/golang-package.mk
 
 define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
 	TITLE:=openwrt-xray-geodata-cut
 	PROVIDES:=xray-geodata
-	DEPENDS:=$(GO_ARCH_DEPENDS)
 endef
 
 define Package/$(PKG_NAME)/description
@@ -45,14 +41,6 @@ config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_FETCH_VIA_PROXYCHAINS
 	bool "Fetch via proxychains"
 	default n
 
-config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOSITE
-	bool "Trim GeoSite"
-	default n
-
-config PACKAGE_OPENWRT_XRAY_GEODATA_CUT_GEOIP
-	bool "Trim GeoIP"
-	default n
-
 endmenu
 endef
 
@@ -65,16 +53,23 @@ endif
 
 # ---------- BUILD ----------
 
-# используем стандартную сборку golang-package.mk
 define Build/Compile
-	$(call GoPackage/Build/Compile)
+	$(INSTALL_DIR) $(PKG_INSTALL_DIR)/bin
+
+	cd $(PKG_BUILD_DIR); \
+	$(GO_HOST_PKG_VARS) \
+	go mod download; \
+	go mod edit -replace github.com/sagernet/sing=github.com/sagernet/sing@v0.3.3; \
+	CGO_ENABLED=0 \
+	go build -trimpath -ldflags "-s -w" \
+	-o $(PKG_INSTALL_DIR)/bin/xray-geodata-cut .
 endef
 
 # ---------- INSTALL ----------
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(GO_PKG_BUILD_DIR)/xray-geodata-cut $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/xray-geodata-cut $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/usr/share/xray
 
