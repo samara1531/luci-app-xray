@@ -1,0 +1,109 @@
+name: Build and Release luci-app-xray
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+
+env:
+  OPENWRT_VERSION: 24.10.6
+  CACHE_DIR: ${{ github.workspace }}/cache
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - arm_cortex-a7_neon-vfpv4
+          - aarch64_generic
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set SDK URL
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-sdk-${OPENWRT_VERSION}-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          elif [ "${{ matrix.arch }}" = "aarch64_cortex-a53" ]; then
+            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mediatek/filogic/openwrt-sdk-${OPENWRT_VERSION}-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          elif [ "${{ matrix.arch }}" = "aarch64_cortex-a72" ]; then
+            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mvebu/cortexa72/openwrt-sdk-${OPENWRT_VERSION}-mvebu-cortexa72_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          elif [ "${{ matrix.arch }}" = "arm_cortex-a7_neon-vfpv4" ]; then
+            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/bcm27xx/bcm2709/openwrt-sdk-${OPENWRT_VERSION}-bcm27xx-bcm2709_gcc-13.3.0_musl_eabi.Linux-x86_64.tar.zst"
+          elif [ "${{ matrix.arch }}" = "aarch64_generic" ]; then
+            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/rockchip/armv8/openwrt-sdk-${OPENWRT_VERSION}-rockchip-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          else
+            echo "Unknown arch"
+            exit 1
+          fi
+          echo "SDK_URL=$SDK_URL" >> $GITHUB_ENV
+
+      - name: Prepare SDK
+        run: |
+          mkdir -p "$CACHE_DIR/${{ matrix.arch }}"
+          cd "$CACHE_DIR/${{ matrix.arch }}"
+          wget -q "$SDK_URL" -O sdk.tar.zst
+          mkdir sdk_home
+          tar --zstd -xf sdk.tar.zst --strip-components=1 -C sdk_home
+          echo "SDK_HOME=$CACHE_DIR/${{ matrix.arch }}/sdk_home" >> $GITHUB_ENV
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+            python3 python3-pyelftools python3-setuptools python3-dev swig \
+            rsync unzip zstd file wget curl
+
+      - name: Setup feeds
+        run: |
+          cd "$SDK_HOME"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy packages
+        run: |
+          cd "$SDK_HOME"
+          mkdir -p package/luci-app-xray
+          cp -r "$GITHUB_WORKSPACE/core/." package/luci-app-xray/
+
+          mkdir -p package/luci-app-xray-status
+          cp -r "$GITHUB_WORKSPACE/status/." package/luci-app-xray-status/
+
+          mkdir -p package/openwrt-xray-geodata-cut
+          cp -r "$GITHUB_WORKSPACE/xray-geodata-cut/." package/openwrt-xray-geodata-cut/
+
+      - name: Build
+        run: |
+          cd "$SDK_HOME"
+          make defconfig
+          make package/luci-app-xray/compile V=s
+          make package/luci-app-xray-status/compile V=s
+          make package/openwrt-xray-geodata-cut/compile V=s
+
+      - name: Collect APKs
+        run: |
+          cd "$SDK_HOME"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          for pkg in luci-app-xray luci-app-xray-status openwrt-xray-geodata-cut; do
+            for f in $(find bin/packages -type f -name "${pkg}*.ipk"); do
+              base=$(basename "$f" .ipk)
+              cp "$f" "$GITHUB_WORKSPACE/out/${base}-${{ matrix.arch }}.ipk"
+            done
+          done
+          ls -lh "$GITHUB_WORKSPACE/out"/*.ipk
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.ipk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
