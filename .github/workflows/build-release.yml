@@ -74,10 +74,10 @@ jobs:
           cd "$SDK_HOME"
           mkdir -p package/luci-app-xray
           cp -r "$GITHUB_WORKSPACE/core/." package/luci-app-xray/
-          mkdir -p package/luci-app-xray-geodata
-          cp -r "$GITHUB_WORKSPACE/geodata/." package/luci-app-xray-geodata/
+
           mkdir -p package/luci-app-xray-status
           cp -r "$GITHUB_WORKSPACE/status/." package/luci-app-xray-status/
+
           mkdir -p package/openwrt-xray-geodata-cut
           cp -r "$GITHUB_WORKSPACE/xray-geodata-cut/." package/openwrt-xray-geodata-cut/
 
@@ -86,7 +86,6 @@ jobs:
           cd "$SDK_HOME"
           make defconfig
           make package/luci-app-xray/compile V=s
-          make package/luci-app-xray-geodata/compile V=s
           make package/luci-app-xray-status/compile V=s
           make package/openwrt-xray-geodata-cut/compile V=s
 
@@ -94,7 +93,7 @@ jobs:
         run: |
           cd "$SDK_HOME"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          for pkg in luci-app-xray luci-app-xray-geodata luci-app-xray-status openwrt-xray-geodata-cut; do
+          for pkg in luci-app-xray luci-app-xray-status openwrt-xray-geodata-cut; do
             for f in $(find bin/packages -type f -name "${pkg}*.apk"); do
               base=$(basename "$f" .apk)
               cp "$f" "$GITHUB_WORKSPACE/out/${base}-${{ matrix.arch }}.apk"
