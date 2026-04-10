@@ -19,8 +19,6 @@ jobs:
         arch:
           - x86_64
           - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - arm_cortex-a7_neon-vfpv4
           - aarch64_generic
 
     steps:
@@ -33,10 +31,6 @@ jobs:
             SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-sdk-${OPENWRT_VERSION}-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
           elif [ "${{ matrix.arch }}" = "aarch64_cortex-a53" ]; then
             SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mediatek/filogic/openwrt-sdk-${OPENWRT_VERSION}-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-          elif [ "${{ matrix.arch }}" = "aarch64_cortex-a72" ]; then
-            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/mvebu/cortexa72/openwrt-sdk-${OPENWRT_VERSION}-mvebu-cortexa72_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-          elif [ "${{ matrix.arch }}" = "arm_cortex-a7_neon-vfpv4" ]; then
-            SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/bcm27xx/bcm2709/openwrt-sdk-${OPENWRT_VERSION}-bcm27xx-bcm2709_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst"
           elif [ "${{ matrix.arch }}" = "aarch64_generic" ]; then
             SDK_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/rockchip/armv8/openwrt-sdk-${OPENWRT_VERSION}-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
           else
