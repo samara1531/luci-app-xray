@@ -1,4 +1,4 @@
-name: Build and Release luci-app-xray
+name: Build2 and Release luci-app-xray
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - "*"
 
 env:
-  OPENWRT_VERSION: 25.12.2
+  OPENWRT_VERSION: 25.12.5
   CACHE_DIR: ${{ github.workspace }}/cache
 
 jobs:
